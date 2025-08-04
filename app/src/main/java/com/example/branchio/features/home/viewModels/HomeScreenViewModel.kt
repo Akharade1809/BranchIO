@@ -26,49 +26,74 @@ class HomeScreenViewModel(
     private val _effect = MutableSharedFlow<HomeScreenEffect>()
     val effect: SharedFlow<HomeScreenEffect> = _effect.asSharedFlow()
 
-
-    fun onEvent(event : HomeScreenEvent) {
-        when (event) {
-            is HomeScreenEvent.OnGenerateLinkClicked -> generateLink()
-//            HomeScreenEvent.NavigateToDeepLink -> navigateToDeepLink()
-        }
-    }
-
-//    private fun navigateToDeepLink(){
-//        viewModelScope.launch {
-//            val data = BranchLinkData(
-//                title = "Demo Title",
-//                description = "Demo Description",
-//                imageUrl = "https://placehold.co/600x400",
-//                metadata = mapOf("author" to "Arjun", "version" to "1.0")
-//            )
-//            _effect.emit(HomeScreenEffect.NavigateToDeepLink(data))
-//        }
-//
-//    }
-
     val data = BranchLinkData(
         title = "Check out this cool content!",
         description = "This is a deep link to specific content.",
-        imageUrl = "https://example.com/image.jpg",
-        metadata = mapOf("item_id" to "12345", "type" to "example")
+        imageUrl = "https://picsum.photos/id/237/200/300",
+        metadata = mapOf(
+            "item_id" to "12345",
+            "type" to "lorem_picsum"
+        )
     )
+
+    fun onEvent(event: HomeScreenEvent) {
+        when (event) {
+            is HomeScreenEvent.OnGenerateLinkClicked -> generateLink()
+            is HomeScreenEvent.OnNavigateToDeepLinkClicked -> navigateToDeepLink()
+        }
+    }
+
+    private fun navigateToDeepLink() {
+        viewModelScope.launch {
+            val currentLink = _state.value.generatedLink
+            if (currentLink != null) {
+                _effect.emit(HomeScreenEffect.NavigateToDeepLink(currentLink))
+            } else {
+                _effect.emit(HomeScreenEffect.ShowSnackbar("Please generate a link first"))
+            }
+        }
+    }
 
     private fun generateLink() {
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
-            val result = generateBranchLinkUseCase(data)
 
-            result.fold(
-                onSuccess = { url ->
-                    _state.update { it.copy(isLoading = false, generatedLink = url) }
-                    _effect.emit(HomeScreenEffect.ShareGeneratedLink(url))
-                },
-                onFailure = { error ->
-                    _state.update { it.copy(isLoading = false, error = error.message) }
-                    _effect.emit(HomeScreenEffect.ShowSnackbar("Failed to generate link"))
+            try {
+                val result = generateBranchLinkUseCase(data)
+
+                result.fold(
+                    onSuccess = { url ->
+                        _state.update {
+                            it.copy(
+                                isLoading = false,
+                                generatedLink = url,
+                                canNavigate = true // Enable navigation button
+                            )
+                        }
+                        _effect.emit(HomeScreenEffect.ShareGeneratedLink(url))
+                        _effect.emit(HomeScreenEffect.ShowSnackbar("Link generated successfully!"))
+                    },
+                    onFailure = { error ->
+                        _state.update {
+                            it.copy(
+                                isLoading = false,
+                                error = error.message,
+                                canNavigate = false
+                            )
+                        }
+                        _effect.emit(HomeScreenEffect.ShowSnackbar("Failed to generate link: ${error.message}"))
+                    }
+                )
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        error = e.message,
+                        canNavigate = false
+                    )
                 }
-            )
+                _effect.emit(HomeScreenEffect.ShowSnackbar("Unexpected error: ${e.message}"))
+            }
         }
     }
 }

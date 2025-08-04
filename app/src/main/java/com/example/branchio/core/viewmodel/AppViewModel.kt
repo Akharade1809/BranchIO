@@ -7,16 +7,12 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import com.example.branchio.domain.usecases.InitBranchSessionUseCase
 import com.example.branchio.domain.usecases.ReinitBranchSessionUseCase
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 
 class AppViewModel(
     private val initBranchSessionUseCase: InitBranchSessionUseCase,
     private val reinitBranchSessionUseCase: ReinitBranchSessionUseCase,
 ) : ViewModel() {
 
-    private val _deepLinkPath = MutableStateFlow<String?>(null)
-    val deepLinkPath : StateFlow<String?> = _deepLinkPath
 
     fun initBranch(activity: Activity, data: Uri?) {
         initBranchSessionUseCase(activity, data) { buo, linkProps, error ->

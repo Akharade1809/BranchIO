@@ -16,6 +16,8 @@ class BranchApp : Application() {
 
         try{
             Branch.getAutoInstance(this)
+
+            Branch.getInstance().setRequestMetadata("\$analytics_visitor_id", "000001")
         }catch (e: Exception){
             e.printStackTrace()
         }

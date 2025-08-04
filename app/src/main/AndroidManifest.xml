@@ -34,14 +34,17 @@
             </intent-filter>
 
             <!-- Branch URI Scheme (custom scheme optional) -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="open" />
-            </intent-filter>
+<!--            <intent-filter android:autoVerify="true">-->
+<!--                <action android:name="android.intent.action.VIEW" />-->
 
-            <!-- Branch App Links -->
+<!--                <category android:name="android.intent.category.DEFAULT" />-->
+<!--                <category android:name="android.intent.category.BROWSABLE" />-->
+
+<!--                <data android:scheme="https" />-->
+<!--                <data android:host="open" />-->
+<!--            </intent-filter>-->
+
+            <!-- Branch App Test Links -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -49,6 +52,13 @@
                 <data android:scheme="https"
                     android:host="n2ujk.test-app.link"
                     android:pathPrefix="/" />
+            </intent-filter>
+
+            <!-- Alternate Test Link -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https"
                     android:host="n2ujk-alternate.test-app.link"
                     android:pathPrefix="/" />
