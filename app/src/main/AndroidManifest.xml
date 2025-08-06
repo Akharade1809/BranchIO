@@ -33,16 +33,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Branch URI Scheme (custom scheme optional) -->
-<!--            <intent-filter android:autoVerify="true">-->
-<!--                <action android:name="android.intent.action.VIEW" />-->
-
-<!--                <category android:name="android.intent.category.DEFAULT" />-->
-<!--                <category android:name="android.intent.category.BROWSABLE" />-->
-
-<!--                <data android:scheme="https" />-->
-<!--                <data android:host="open" />-->
-<!--            </intent-filter>-->
 
             <!-- Branch App Test Links -->
             <intent-filter android:autoVerify="true">

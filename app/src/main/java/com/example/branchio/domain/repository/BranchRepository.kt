@@ -2,26 +2,24 @@ package com.example.branchio.domain.repository
 
 import android.app.Activity
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
-import com.example.branchio.domain.entity.BranchLinkData
-import com.example.branchio.util.BranchLinkExtractor
+import com.example.branchio.data.models.Product
 import io.branch.indexing.BranchUniversalObject
 import io.branch.referral.Branch
 import io.branch.referral.BranchError
+import io.branch.referral.util.BRANCH_STANDARD_EVENT
+import io.branch.referral.util.BranchEvent
 import io.branch.referral.util.ContentMetadata
+import io.branch.referral.util.CurrencyType
 import io.branch.referral.util.LinkProperties
-import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONObject
 import java.util.Calendar
 import kotlin.coroutines.resumeWithException
 
 interface BranchRepository {
-    suspend fun generateBranchLink(data : BranchLinkData) : Result<String>
+    suspend fun generateBranchLink(data : Product) : Result<String>
 
     fun initBranchSession(
         activity: Activity,
@@ -33,8 +31,17 @@ interface BranchRepository {
         callback: (JSONObject?, BranchError?) -> Unit
     )
 
-    suspend fun handleDeepLink(activity: Activity, intent : Intent) : Result<BranchLinkData>
+    fun trackEvent(
+        eventName : String,
+        buo : BranchUniversalObject? = null,
+        eventData : Map<String, Any> = emptyMap()
+    )
 
+    fun trackContentView(buo: BranchUniversalObject)
+
+    fun trackPurchase(buo: BranchUniversalObject, revenue: Double, currency: String = "USD")
+
+    fun trackAddToCart(buo: BranchUniversalObject)
 }
 
 
@@ -42,60 +49,65 @@ class BranchRepositoryImpl(
     private val context: Context
 ) : BranchRepository {
 
-    fun createBranchUniversalObject(data : BranchLinkData) : BranchUniversalObject{
-        return BranchUniversalObject()
-            .setTitle(data.title)
-            .setContentDescription(data.description)
-            .setContentImageUrl(data.imageUrl)
-            .setContentIndexingMode(BranchUniversalObject.CONTENT_INDEX_MODE.PUBLIC)
-            .setLocalIndexMode(BranchUniversalObject.CONTENT_INDEX_MODE.PUBLIC)
-            .setContentMetadata(
-                ContentMetadata().apply {
-                    data.metadata.forEach { (key, value) ->
-                        addCustomMetadata(key, value)
-                    }
-                }
-            )
-    }
-
-
-    override suspend fun generateBranchLink(data : BranchLinkData): Result<String> {
+    override suspend fun generateBranchLink(data: Product): Result<String> {
         return try {
-            // Define the content you want to share that represents unique piece of content
-            val buo = createBranchUniversalObject(data)
 
-            // Define the link properties that contains info about the url
+            val metadata = mapOf(
+                "product_id" to data.id.toString(),
+                "product_title" to data.title,
+                "product_price" to data.price.toString(),
+                "product_category" to data.category,
+                "rating" to data.rating.rate.toString(),
+                "page_type" to "product_detail",
+                "image_url" to data.image
+            )
+
+            val buo = BranchUniversalObject()
+                .setCanonicalIdentifier("content/${data.id}")
+                .setTitle(data.title)
+                .setContentDescription("Check out this amazing ${data.category} for just $${data.price}!")
+                .setContentImageUrl(data.image)
+                .setContentIndexingMode(BranchUniversalObject.CONTENT_INDEX_MODE.PUBLIC)
+                .setLocalIndexMode(BranchUniversalObject.CONTENT_INDEX_MODE.PUBLIC)
+                .setContentMetadata(ContentMetadata().apply {
+                    metadata.forEach { (key, value) -> addCustomMetadata(key, value) }
+                    addCustomMetadata("creation_timestamp", System.currentTimeMillis().toString())
+                    addCustomMetadata("app_version", "1.0.0")
+                })
+
             val linkProperties: LinkProperties = LinkProperties()
-                .setChannel("facebook")
-                .setFeature("sharing")
-                .setCampaign("content 123 launch")
-                .setStage("new user")
+                .setChannel("product_sharing")
+                .setFeature("product_detail")
+                .setCampaign("ecommerce_sharing")
+                .setStage("product_view")
                 .addControlParameter("\$desktop_url", "https://example.com/home")
                 .addControlParameter("custom", "data")
+                .addControlParameter("\$og_image_url", data.image)
                 .addControlParameter("custom_random", Calendar.getInstance().timeInMillis.toString())
 
+            metadata.forEach { (key, value) ->
+                linkProperties.addControlParameter(key, value)
+            }
 
 
+            linkProperties.addControlParameter("page_type", "product_detail")
 
-            // Suspend until Branch link is generated
             val link = suspendCancellableCoroutine<String> { continuation ->
-//                buo.getShortUrl(context, linkProperties) // asynchrounous call
-
-                buo.generateShortUrl(context, linkProperties) { url, error -> //sync call
+                buo.generateShortUrl(context, linkProperties) { url, error ->
                     if (error == null && url != null) {
-                        continuation.resume(url) {}
+                        continuation.resume(url, onCancellation = null)
                     } else {
-                        continuation.resumeWithException(
-                            (error ?: Exception("Unknown error")) as Throwable
-                        )
+                        val exception = Exception(error?.message ?: "Unknown error generating Branch link")
+                        continuation.resumeWithException(exception)
                     }
                 }
             }
-            println(link)
 
+            Log.d("BranchRepository", "Generated product share link: $link")
             Result.success(link)
 
         } catch (e: Exception) {
+            Log.e("BranchRepository", "Failed to generate product link", e)
             Result.failure(e)
         }
     }
@@ -106,13 +118,17 @@ class BranchRepositoryImpl(
         data: Uri?,
         callback: (BranchUniversalObject?, LinkProperties?, BranchError?) -> Unit
     ) {
+        Log.d("BranchRepository", " Initializing Branch session with data: $data")
+
         Branch.sessionBuilder(activity)
             .withCallback { buo, linkProps, error ->
+                Log.d("BranchRepository", "Branch init callback triggered")
+                Log.d("BranchRepository", " BUO: ${buo?.title}, LinkProps: ${linkProps?.channel}, Error: ${error?.message}")
+
                 callback(buo, linkProps, error)
             }
             .withData(data)
             .init()
-
     }
 
     override fun reinitBranchSession(
@@ -126,144 +142,63 @@ class BranchRepositoryImpl(
             .reInit()
     }
 
-    override suspend fun handleDeepLink(activity: Activity, intent: Intent): Result<BranchLinkData> {
-        return suspendCancellableCoroutine { continuation ->
 
-            // Force fresh session by clearing any existing session data
-            Branch.getInstance().logout()
+    override fun trackEvent(
+        eventName: String,
+        buo: BranchUniversalObject?,
+        eventData: Map<String, Any>
+    ) {
+       try {
+           val event = BranchEvent(eventName).apply {
+               buo?.let {
+                   addContentItems(it)
+               }
 
-            // Add extra delay to ensure logout completes
-            Handler(Looper.getMainLooper()).postDelayed({
+               eventData.forEach { (key, value) ->
+                   addCustomDataProperty(key,value.toString())
+               }
 
-                val intentWithForceSession = Intent(intent).apply {
-                    putExtra("branch_force_new_session", true)
-                    // Important: Change the action to simulate external deep link
-                    action = Intent.ACTION_VIEW
-                }
+               setDescription("Event tracked from Android Application")
+               setCustomerEventAlias("android_${eventName.lowercase()}")
+           }
+           event.logEvent(context)
+           Log.d("BranchRepository", " Event tracked: $eventName with BUO: ${buo != null}")
+           Log.d("BranchRepository", " Event tracked: $eventName with BUO: ${buo}")
+       } catch (e  : Exception){
+           Log.e("BranchRepository", "Failed to track event: $eventName", e)
+       }
 
-                Branch.sessionBuilder(activity)
-                    .withCallback(object : Branch.BranchReferralInitListener {
-                        override fun onInitFinished(referringParams: JSONObject?, error: BranchError?) {
-                            if (error == null) {
-                                Log.i("BranchRepository", "Fresh session success: ${referringParams.toString()}")
-
-                                try {
-                                    val branchLinkData = BranchLinkExtractor.extractBranchLinkData(referringParams)
-                                    Log.d("BranchRepository", "Extracted fresh data: $branchLinkData")
-                                    continuation.resume(Result.success(branchLinkData), onCancellation = null)
-                                } catch (e: Exception) {
-                                    Log.e("BranchRepository", "Error extracting fresh data", e)
-                                    continuation.resumeWithException(e)
-                                }
-                            } else {
-                                // If error, try to get data from URL directly
-                                val errorMessage = error.message ?: "Branch initialization failed"
-                                if (errorMessage.contains("already happened")) {
-                                    Log.w("BranchRepository", "Trying alternative approach...")
-                                    tryDirectUrlParsing(intent, continuation)
-                                } else {
-                                    Log.e("BranchRepository", "Branch error: $errorMessage")
-                                    continuation.resumeWithException(Exception(errorMessage))
-                                }
-                            }
-                        }
-                    })
-                    .withData(intentWithForceSession.data)
-                    .init()
-
-            }, 100) // Small delay to ensure logout completes
-        }
     }
 
-    private fun tryDirectUrlParsing(intent: Intent, continuation: CancellableContinuation<Result<BranchLinkData>>) {
-        try {
-            // Since Branch isn't working, create mock data based on your known structure
-            val mockBranchData = BranchLinkData(
-                title = "Check out this cool content!",
-                description = "This is a deep link to specific content.",
-                imageUrl = "https://picsum.photos/id/237/200/300",
-                metadata = mapOf(
-                    "item_id" to "12345",
-                    "type" to "lorem_picsum",
-                    "custom" to "data",
-                    "source" to "internal_navigation"
-                )
-            )
+    override fun trackContentView(buo: BranchUniversalObject) {
+        BranchEvent(BRANCH_STANDARD_EVENT.VIEW_ITEM)
+            .addContentItems(buo)
+            .logEvent(context)
 
-            Log.d("BranchRepository", "Using fallback mock data: $mockBranchData")
-            continuation.resume(Result.success(mockBranchData), onCancellation = null)
-
-        } catch (e: Exception) {
-            continuation.resumeWithException(e)
-        }
+        Log.d("BranchRepository", " Content view tracked: ${buo.title}")
     }
 
+    override fun trackPurchase(
+        buo: BranchUniversalObject,
+        revenue: Double,
+        currency: String
+    ) {
+        BranchEvent(BRANCH_STANDARD_EVENT.PURCHASE).apply {
+            addContentItems(buo)
+            setRevenue(revenue)
+            setCurrency(CurrencyType.USD)
+        }.logEvent(context)
 
+        Log.d("BranchRepository", " Purchase tracked: $revenue $currency")
+    }
 
+    override fun trackAddToCart(buo: BranchUniversalObject) {
+        BranchEvent(BRANCH_STANDARD_EVENT.ADD_TO_CART)
+            .addContentItems(buo)
+            .setDescription("User added item to cart")
+            .logEvent(context)
 
-//    override suspend fun handleDeepLink(intent: Intent): Result<BranchLinkData> {
-//        return suspendCancellableCoroutine { continuation ->
-//            Branch.sessionBuilder(context as Activity?)
-//                .withCallback(object : Branch.BranchReferralInitListener {
-//                    override fun onInitFinished(referringParams: JSONObject?, error: BranchError?) {
-//                        if(error == null && referringParams != null){
-//                            Log.i("handleDeepLink", "onInitFinished: ${referringParams.toString()}")
-//
-//                            // here set the BranchLinkData params to be used as entity.
-//                            try {
-//
-//                                // referringobjects
-//                                val title = referringParams.optString("~title", "")
-//                                val description = referringParams.optString("~description","")
-//                                val imageUrl = referringParams.optString("~image_url", "")
-//
-//                                //custom metadata
-//                                val metadata = mutableMapOf<String, String>()
-//
-//                                //without prefixes:
-//
-//                                val keys = referringParams.keys()
-//                                while (keys.hasNext()){
-//                                    val key = keys.next()
-//                                    if(!key.startsWith("~") && !key.startsWith("$") && !key.startsWith("+")){
-//                                        val value = referringParams.optString(key,"")
-//                                        if(value.isNotEmpty()){
-//                                            metadata[key] = value
-//                                        }
-//                                    }
-//
-//                                }
-//
-//                            }
-//
-//
-//                        }else{
-//                            continuation.resumeWithException(Exception(error.message))
-//                        }
-//                    }
-//                }) .withData(context.intent.data)
-//                .init()
-//
-//
-//
-//
-////            Branch.sessionBuilder(context as Activity?)
-////                .withCallback { buo, linkProps, errors ->
-////                    if(errors != null){
-////                        continuation.resumeWithException(Exception(errors.message))
-////                    } else {
-////                        val data = BranchLinkData(
-////                            title = buo?.title ?: "",
-////                            description = buo?.description ?: "",
-////                            imageUrl = buo?.imageUrl ?: "",
-////                            metadata = buo?.contentMetadata?.customMetadata ?: emptyMap(),
-////                        )
-////                        continuation.resume(Result.success(data), onCancellation = null)
-////                    }
-////                }
-////                .withData(intent.data)
-////                .init()
-//        }
-//    }
+        Log.d("BranchRepository", " Add to cart tracked: ${buo.title}")
+    }
 
 }

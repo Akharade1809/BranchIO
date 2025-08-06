@@ -15,6 +15,8 @@ class BranchApp : Application() {
         Branch.enableLogging() //
 
         try{
+
+            Branch.expectDelayedSessionInitialization(true)
             Branch.getAutoInstance(this)
 
             Branch.getInstance().setRequestMetadata("\$analytics_visitor_id", "000001")
